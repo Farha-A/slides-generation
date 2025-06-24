@@ -8,3 +8,4 @@ google-generativeai
 reportlab
 arabic-reshaper
 python-bidi
+gunicorn
