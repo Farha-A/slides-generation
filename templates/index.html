@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Text Extractor</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .container { max-width: 600px; margin: auto; }
+        .upload, .view, .gemini { margin-bottom: 20px; }
+        select, input[type="file"], input[type="text"], button { padding: 8px; margin-right: 10px; }
+        button { cursor: pointer; }
+        label { margin-right: 5px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>PDF Text Extractor</h1>
+        <div class="upload">
+            <form action="{{ url_for('upload_file') }}" method="post" enctype="multipart/form-data">
+                <input type="file" name="file" accept=".pdf" required>
+                <select name="language" required>
+                    <option value="eng">English</option>
+                    <option value="fra">French</option>
+                    <option value="deu">German</option>
+                    <option value="ara">Arabic</option>
+                </select>
+                <button type="submit">Upload PDF</button>
+            </form>
+        </div>
+        <div class="view">
+            <form id="viewForm" method="get">
+                <select name="filename" id="filename" required onchange="updateFormAction()">
+                    <option value="">Select a text file</option>
+                    {% for file in txt_files %}
+                        <option value="{{ file }}">{{ file }}</option>
+                    {% endfor %}
+                </select>
+                <button type="submit">Open</button>
+            </form>
+            <form id="generateForm" method="post" action="{{ url_for('generate_slides') }}">
+                <select name="filename" id="generate_filename" required>
+                    <option value="">Select a text file</option>
+                    {% for file in txt_files %}
+                        <option value="{{ file }}">{{ file }}</option>
+                    {% endfor %}
+                </select>
+                <label for="grade">Grade:</label>
+                <input type="text" name="grade" id="grade" required>
+                <label for="course">Course:</label>
+                <input type="text" name="course" id="course" required>
+                <label for="section">Section:</label>
+                <input type="text" name="section" id="section" required>
+                <label for="country">Country:</label>
+                <input type="text" name="country" id="country" required>
+                <label for="slide_language">Language:</label>
+                <input type="text" name="slide_language" id="slide_language" required>
+                <button type="submit">Generate Slide Points</button>
+            </form>
+            <script>
+                function updateFormAction() {
+                    var filename = document.getElementById('filename').value;
+                    if (filename) {
+                        document.getElementById('viewForm').action = "{{ url_for('view_file', filename='') }}" + filename;
+                        document.getElementById('generate_filename').value = filename;
+                    }
+                }
+            </script>
+        </div>
+        <div class="gemini">
+            <form id="pdfForm" method="get">
+                <select name="filename" id="pdfFile" required onchange="updatePdfFormAction()">
+                    <option value="">Select a Gemini response PDF</option>
+                    {% for file in pdf_files %}
+                        <option value="{{ file }}">{{ file }}</option>
+                    {% endfor %}
+                </select>
+                <button type="submit">View PDF</button>
+            </form>
+            <script>
+                function updatePdfFormAction() {
+                    var filename = document.getElementById('pdfFile').value;
+                    if (filename) {
+                        document.getElementById('pdfForm').action = "{{ url_for('view_pdf', filename='') }}" + filename;
+                    }
+                }
+            </script>
+        </div>
+    </div>
+</body>
+</html>
