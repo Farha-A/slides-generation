@@ -1,11 +1,11 @@
 Flask
-python-dotenv
+gunicorn
 PyPDF2
 pdf2image
 pytesseract
 Pillow
-google-generativeai
+python-dotenv
 reportlab
-arabic-reshaper
+arabic_reshaper
 python-bidi
-gunicorn
+google-generativeai
