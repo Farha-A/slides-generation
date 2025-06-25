@@ -208,9 +208,10 @@ Content:
 
 @app.route('/')
 def index():
-    txt_files = [f for f in os.listdir(app.config['CONTENT_FOLDER']) if f.endswith('.txt')]
-    pdf_files = [f for f in os.listdir(app.config['GEMINI_FOLDER']) if f.endswith('.pdf')]
-    return render_template('index.html', txt_files=txt_files, pdf_files=pdf_files)
+    # txt_files = [f for f in os.listdir(app.config['CONTENT_FOLDER']) if f.endswith('.txt')]
+    # pdf_files = [f for f in os.listdir(app.config['GEMINI_FOLDER']) if f.endswith('.pdf')]
+    # return render_template('index.html', txt_files=txt_files, pdf_files=pdf_files)
+    return "hi?"
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
