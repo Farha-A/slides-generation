@@ -14,7 +14,6 @@ RUN apt-get update && apt-get install -y \
     libxext6 \
     libxrender-dev \
     libglib2.0-0 \
-    ttf-dejavu \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
