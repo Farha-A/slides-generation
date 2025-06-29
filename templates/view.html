@@ -4,12 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ filename }}</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 40px; }
-        .container { max-width: 800px; margin: auto; }
-        pre { white-space: pre-wrap; background: #f4f4f4; padding: 15px; border-radius: 5px; }
-        a { display: inline-block; margin-top: 20px; text-decoration: none; color: #007bff; }
-    </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
     <div class="container">

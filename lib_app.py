@@ -57,7 +57,7 @@ def has_extractable_text(pdf_file):
     try:
         with open(pdf_file, 'rb') as file:
             reader = PyPDF2.PdfReader(file)
-            for page in reader.pages[:5]:
+            for page in reader.pages[:1]:
                 text = page.extract_text() or ''
                 if len(text.strip()) > 10:
                     return True
@@ -214,18 +214,17 @@ def index():
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
-    if 'file' not in request.files or 'language' not in request.form:
+    if 'file' not in request.files or not all(key in request.form for key in ['grade', 'course', 'section', 'language', 'country']):
         return redirect(url_for('index'))
     file = request.files['file']
+    grade = request.form['grade']
+    course = request.form['course']
+    section = request.form['section']
     language = request.form['language']
+    country = request.form['country']
     if file.filename == '' or not file.filename.endswith('.pdf'):
         return redirect(url_for('index'))
 
-    # Use placeholder parameters for text file naming during upload
-    course = "unknown_course"
-    grade = "unknown_grade"
-    section = "unknown_section"
-    country = "unknown_country"
     base_filename = f"{course}_{grade}_{section}_{language}_{country}"
     pdf_path = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
     txt_path = os.path.join(app.config['CONTENT_FOLDER'], f"{base_filename}.txt")
@@ -261,7 +260,7 @@ def generate_slides():
     course = request.form.get('course')
     section = request.form.get('section')
     country = request.form.get('country')
-    language = request.form.get('slide_language')
+    language = request.form.get('language')
     
     if not all([filename, grade, course, section, country, language]):
         print("Missing required form fields")
