@@ -7,8 +7,12 @@ ENV PYTHONUNBUFFERED 1
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
-    build-essential \
     tesseract-ocr \
+    tesseract-ocr-eng \
+    tesseract-ocr-ara \
+    tesseract-ocr-fra \
+    tesseract-ocr-deu \
+    build-essential \
     poppler-utils \
     libsm6 \
     libxext6 \
