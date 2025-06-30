@@ -7,10 +7,9 @@ import pytesseract
 from PIL import Image
 import google.generativeai as genai
 from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
-from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 import arabic_reshaper
@@ -137,13 +136,13 @@ def generate_pdf_from_text(text, output_path, language='english'):
         print(f"Error generating PDF for {language}: {e}")
         raise
 
-def construct_prompt(content, grade, course, section, country, language):
+def construct_prompt(grade, course, section, country, language):
     return f"""
 Role:
 You are an expert Instructional Content Designer specializing in creating visually organized, curriculum-aligned slide presentations for classroom use.
 
 Objective:
-Analyze the educational material provided (e.g., textbook chapter, article, teacher notes) and convert it into a well-structured, age-appropriate slide presentation for:
+Generate a well-structured, age-appropriate slide presentation for:
 Grade: {grade}
 Course: {course}
 Curriculum Section: {section}
@@ -151,11 +150,10 @@ Country: {country}
 Language: {language}
 
 Slide Generation Instructions:
-Content Structure & Fidelity:
-Summarize and sequence content logically, following the original material closely.
-Include all key ideas, definitions, explanations, examples, and terms.
+Content Structure:
+Create content based on typical curriculum for {course}, {section} for Grade {grade} in {country}.
+Include key ideas, definitions, explanations, examples, and terms.
 Use as many slides as needed for clarity—no limit.
-There is no maximum number of slides per lesson or sub-lesson—use however many are required to ensure full coverage and clear understanding.
 If content includes multiple lessons or sub-lessons, generate:
 A separate slide set for each.
 Reset slide numbers at the start of each.
@@ -167,13 +165,13 @@ Slide Title: A clear and concise heading for the slide’s main idea.
 Bullet Points: 3–5 simplified, student-friendly bullets summarizing key information.
 Suggested Visual: Description of a diagram, image, illustration, or chart that supports understanding.
 Optional Think Prompt: A short reflective or analytical question aligned to Bloom’s Taxonomy.
-Numbering & Labeling Instructions (Preventing Number Drift):
-Maintain the original chapter and lesson numbering from the source content.
+Numbering & Labeling Instructions:
+Use standard chapter and lesson numbering for {course}, {section} in {country}.
 Do not continue lesson numbers across chapters.
 Always label slides clearly using this structure:
 Chapter X – Lesson X.Y – Slide Z
 Reset the slide counter for each new lesson.
-Preserve all source-based numbering exactly (e.g., 1.1, 1.2... 2.1, 2.2, etc.).
+Preserve standard curriculum-based numbering exactly (e.g., 1.1, 1.2... 2.1, 2.2, etc.).
 
 Slide Style:
 Use {language} at a reading level appropriate for Grade {grade}.
@@ -193,12 +191,7 @@ If appropriate, conclude with tasks that support Evaluating or Creating (e.g., s
 Output Format:
 Number each slide (Slide 1, Slide 2, etc.).
 Restart numbering for each new lesson or sub-lesson.
-Continue parsing and converting content until the entire input is processed.
 Keep format and tone consistent across all generated sets.
-Assume that additional content will follow unless instructed otherwise.
-
-Content:
-{content}
 """
 
 @app.route('/')
@@ -209,15 +202,23 @@ def index():
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
-    if 'file' not in request.files or not all(key in request.form for key in ['grade', 'course', 'section', 'language', 'country']):
+    if 'file' not in request.files:
+        print("No file uploaded")
         return redirect(url_for('index'))
+    
     file = request.files['file']
-    grade = request.form['grade']
-    course = request.form['course']
-    section = request.form['section']
-    language = request.form['language']
-    country = request.form['country']
+    grade = request.form.get('grade', '').strip()
+    course = request.form.get('course', '').strip()
+    section = request.form.get('section', '').strip()
+    language = request.form.get('language', '').strip()
+    country = request.form.get('country', '').strip()
+
     if file.filename == '' or not file.filename.endswith('.pdf'):
+        print("Invalid file or no file selected")
+        return redirect(url_for('index'))
+
+    if not all([grade, course, section, language, country]):
+        print("Missing required form fields in upload")
         return redirect(url_for('index'))
 
     base_filename = f"{course}_{grade}_{section}_{language}_{country}"
@@ -248,7 +249,6 @@ def upload_file():
             for page_num in range(1, num_pages + 1):
                 if f"--- Page {page_num} ---" not in content:
                     print(f"Warning: Page {page_num} missing in output text file")
-                    # Attempt to reprocess missing page
                     if is_extractable:
                         extract_text(pdf_path, txt_path, page_num - 1, page_num)
                     else:
@@ -278,28 +278,19 @@ def view_file(filename):
 
 @app.route('/generate_slides', methods=['POST'])
 def generate_slides():
-    filename = request.form.get('filename')
-    grade = request.form.get('grade')
-    course = request.form.get('course')
-    section = request.form.get('section')
-    country = request.form.get('country')
-    language = request.form.get('language')
+    grade = request.form.get('grade', '').strip()
+    course = request.form.get('course', '').strip()
+    section = request.form.get('section', '').strip()
+    country = request.form.get('country', '').strip()
+    language = request.form.get('language', '').strip()
     
-    if not all([filename, grade, course, section, country, language]):
-        print("Missing required form fields")
+    if not all([grade, course, section, country, language]):
+        print("Missing required form fields in generate_slides")
         return redirect(url_for('index'))
-    
-    file_path = os.path.join(app.config['CONTENT_FOLDER'], filename)
-    if not os.path.exists(file_path):
-        print(f"Error: Text file not found: {file_path}")
-        return redirect(url_for('index'))
-    
-    with open(file_path, 'r', encoding='utf-8') as f:
-        content = f.read()
     
     try:
         model = genai.GenerativeModel('gemini-1.5-flash')
-        prompt = construct_prompt(content, grade, course, section, country, language)
+        prompt = construct_prompt(grade, course, section, country, language)
         response = model.generate_content(prompt)
         
         base_filename = f"{course}_{grade}_{section}_{language}_{country}"

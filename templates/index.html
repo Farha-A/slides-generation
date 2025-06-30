@@ -106,7 +106,7 @@
             form.submit();
         }
 
-        function validateForm() {
+        function validateForm(isUpload) {
             const language = document.getElementById('language').value;
             const grade = document.getElementById('grade').value.trim();
             const course = document.getElementById('course').value.trim();
@@ -114,23 +114,23 @@
             const country = document.getElementById('country').value.trim();
             const file = document.getElementById('file').value;
 
-            return language && grade && course && section && country && file;
+            if (isUpload) {
+                return language && grade && course && section && country && file;
+            }
+            return language && grade && course && section && country;
         }
 
         document.getElementById('generateButton').addEventListener('click', function(event) {
-            if (!validateForm()) {
+            if (!validateForm(false)) {
                 event.preventDefault();
                 alert("Please fill out all fields (Language, Grade, Course, Section, Country) before generating slide points.");
             }
         });
 
         document.getElementById('uploadButton').addEventListener('click', function(event) {
-            if (!validateForm()) {
+            if (!validateForm(true)) {
                 event.preventDefault();
                 alert("Please fill out all fields (Language, Grade, Course, Section, Country) and select a PDF file.");
-            } else if (!document.getElementById('file').value) {
-                event.preventDefault();
-                alert("Please select a PDF file to upload.");
             }
         });
     </script>
