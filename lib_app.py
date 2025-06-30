@@ -239,12 +239,14 @@ def upload_file():
                 break
             f.write(chunk)
     
-    if has_extractable_text(pdf_path):
-        extract_text(pdf_path, txt_path)
-    else:
-        ocr_content(pdf_path, txt_path, language=language)
+    try:
+        if has_extractable_text(pdf_path):
+            extract_text(pdf_path, txt_path)
+        else:
+            ocr_content(pdf_path, txt_path, language=language)
+    finally:
+        os.remove(pdf_path)  # Ensure cleanup even if error occurs
     
-    os.remove(pdf_path)
     return redirect(url_for('index'))
 
 @app.route('/view/<filename>')
