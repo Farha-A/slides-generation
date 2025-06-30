@@ -240,12 +240,23 @@ def upload_file():
             f.write(chunk)
     
     try:
-        if has_extractable_text(pdf_path):
-            extract_text(pdf_path, txt_path)
-        else:
+        with open(pdf_path, 'rb') as pdf_file:
+            reader = PyPDF2.PdfReader(pdf_file)
+            with open(txt_path, 'w', encoding='utf-8') as txt_file:
+                for page_num in range(len(reader.pages)):
+                    page = reader.pages[page_num]
+                    text = page.extract_text() or ''
+                    txt_file.write(f"\n--- Page {page_num + 1} ---\n")
+                    txt_file.write(text)
+                    txt_file.write("\n")
+                    # Clear memory after each page
+                    del page
+                    if page_num % 10 == 0:  # Flush every 10 pages
+                        txt_file.flush()
+        if not os.path.getsize(txt_path):  # Fallback to OCR if no text extracted
             ocr_content(pdf_path, txt_path, language=language)
     finally:
-        os.remove(pdf_path)  # Ensure cleanup even if error occurs
+        os.remove(pdf_path)
     
     return redirect(url_for('index'))
 
