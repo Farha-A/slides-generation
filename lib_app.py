@@ -77,9 +77,9 @@ def extract_text(pdf_file, output_path, start_page, end_page):
         with open(output_path, 'a', encoding='utf-8') as f:
             f.write(f"Error extracting text: {e}\n")
 
-def ocr_content(pdf_file, output_path, start_page, end_page, language='eng'):
+def ocr_content(pdf_path, output_path, start_page, end_page, language='eng'):
     try:
-        images = convert_from_path(pdf_file, dpi=300, first_page=start_page+1, last_page=end_page)
+        images = convert_from_path(pdf_path, dpi=150, first_page=start_page+1, last_page=end_page)
         mode = 'w' if start_page == 0 else 'a'
         with open(output_path, mode, encoding='utf-8') as f:
             for i, image in enumerate(images, start=start_page):
@@ -87,11 +87,12 @@ def ocr_content(pdf_file, output_path, start_page, end_page, language='eng'):
                 f.write(f"\n--- Page {i + 1} ---\n")
                 f.write(text)
                 f.write("\n")
+                time.sleep(0.1)  # Add delay to reduce load
     except Exception as e:
-        print(f"Error performing OCR on {pdf_file}: {e}")
+        print(f"Error performing OCR: {e}")
         with open(output_path, 'a', encoding='utf-8') as f:
             f.write(f"Error performing OCR: {e}\n")
-
+            
 def generate_pdf_from_text(text, output_path, language='english'):
     try:
         buffer = BytesIO()
