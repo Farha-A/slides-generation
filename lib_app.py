@@ -66,7 +66,8 @@ def extract_text(pdf_file, output_path, start_page, end_page):
     try:
         with open(pdf_file, 'rb') as file:
             reader = PyPDF2.PdfReader(file)
-            with open(output_path, 'w', encoding='utf-8') as f:  # Changed from 'a' to 'w'
+            mode = 'w' if start_page == 0 else 'a'
+            with open(output_path, mode, encoding='utf-8') as f:
                 for i in range(start_page, min(end_page, len(reader.pages))):
                     text = reader.pages[i].extract_text() or ''
                     f.write(f"\n--- Page {i + 1} ---\n")
@@ -74,13 +75,14 @@ def extract_text(pdf_file, output_path, start_page, end_page):
                     f.write("\n")
     except Exception as e:
         print(f"Error extracting text from {pdf_file}: {e}")
-        with open(output_path, 'w', encoding='utf-8') as f:  # Changed from 'a' to 'w'
+        with open(output_path, 'a', encoding='utf-8') as f:
             f.write(f"Error extracting text: {e}\n")
 
 def ocr_content(pdf_file, output_path, start_page, end_page, language='eng'):
     try:
         images = convert_from_path(pdf_file, dpi=300, first_page=start_page+1, last_page=end_page)
-        with open(output_path, 'w', encoding='utf-8') as f:  # Changed from 'a' to 'w'
+        mode = 'w' if start_page == 0 else 'a'
+        with open(output_path, mode, encoding='utf-8') as f:
             for i, image in enumerate(images, start=start_page):
                 text = pytesseract.image_to_string(image, lang=language)
                 f.write(f"\n--- Page {i + 1} ---\n")
@@ -88,7 +90,7 @@ def ocr_content(pdf_file, output_path, start_page, end_page, language='eng'):
                 f.write("\n")
     except Exception as e:
         print(f"Error performing OCR on {pdf_file}: {e}")
-        with open(output_path, 'w', encoding='utf-8') as f:  # Changed from 'a' to 'w'
+        with open(output_path, 'a', encoding='utf-8') as f:
             f.write(f"Error performing OCR: {e}\n")
 
 def generate_pdf_from_text(text, output_path, language='english'):
@@ -233,11 +235,21 @@ def upload_file():
         for start_page in range(0, num_pages, 3):
             end_page = min(start_page + 3, num_pages)
             if has_extractable_text(pdf_path):
-                mode = 'w' if start_page == 0 else 'a'  # Start new file for first batch
                 extract_text(pdf_path, txt_path, start_page, end_page)
             else:
-                mode = 'w' if start_page == 0 else 'a'  # Start new file for first batch
                 ocr_content(pdf_path, txt_path, start_page, end_page, language=language)
+        
+        # Verify all pages are processed
+        with open(txt_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+            for page_num in range(1, num_pages + 1):
+                if f"--- Page {page_num} ---" not in content:
+                    print(f"Warning: Page {page_num} missing in output text file")
+                    # Attempt to reprocess missing page
+                    if has_extractable_text(pdf_path):
+                        extract_text(pdf_path, txt_path, page_num - 1, page_num)
+                    else:
+                        ocr_content(pdf_path, txt_path, page_num - 1, page_num, language=language)
     
         os.remove(pdf_path)
         return redirect(url_for('index'))
