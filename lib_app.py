@@ -231,10 +231,13 @@ def upload_file():
             reader = PyPDF2.PdfReader(file)
             num_pages = len(reader.pages)
         
+        # Check extractability once before processing
+        is_extractable = has_extractable_text(pdf_path)
+        
         # Process 3 pages at a time
         for start_page in range(0, num_pages, 3):
             end_page = min(start_page + 3, num_pages)
-            if has_extractable_text(pdf_path):
+            if is_extractable:
                 extract_text(pdf_path, txt_path, start_page, end_page)
             else:
                 ocr_content(pdf_path, txt_path, start_page, end_page, language=language)
@@ -246,7 +249,7 @@ def upload_file():
                 if f"--- Page {page_num} ---" not in content:
                     print(f"Warning: Page {page_num} missing in output text file")
                     # Attempt to reprocess missing page
-                    if has_extractable_text(pdf_path):
+                    if is_extractable:
                         extract_text(pdf_path, txt_path, page_num - 1, page_num)
                     else:
                         ocr_content(pdf_path, txt_path, page_num - 1, page_num, language=language)
