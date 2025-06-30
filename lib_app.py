@@ -29,6 +29,7 @@ GEMINI_FOLDER = os.path.join(BASE_DIR, 'gemini_pdfs')
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['CONTENT_FOLDER'] = CONTENT_FOLDER
 app.config['GEMINI_FOLDER'] = GEMINI_FOLDER
+app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # 200 MB limit
 
 # Ensure folders exist
 for folder in [UPLOAD_FOLDER, CONTENT_FOLDER, GEMINI_FOLDER]:
@@ -229,7 +230,14 @@ def upload_file():
     pdf_path = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
     txt_path = os.path.join(app.config['CONTENT_FOLDER'], f"{base_filename}.txt")
     
-    file.save(pdf_path)
+    # Stream file in chunks
+    chunk_size = 8192
+    with open(pdf_path, 'wb') as f:
+        while True:
+            chunk = file.stream.read(chunk_size)
+            if not chunk:
+                break
+            f.write(chunk)
     
     if has_extractable_text(pdf_path):
         extract_text(pdf_path, txt_path)
