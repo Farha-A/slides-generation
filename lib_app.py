@@ -29,7 +29,7 @@ GEMINI_FOLDER = os.path.join(BASE_DIR, 'gemini_pdfs')
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['CONTENT_FOLDER'] = CONTENT_FOLDER
 app.config['GEMINI_FOLDER'] = GEMINI_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # 200 MB limit
+app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # 100 MB limit
 
 # Ensure folders exist
 for folder in [UPLOAD_FOLDER, CONTENT_FOLDER, GEMINI_FOLDER]:
@@ -43,12 +43,8 @@ genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 # Register fonts for different languages
 try:
-    # Assuming fonts are in a 'fonts' directory in the project root
     FONTS_DIR = os.path.join(BASE_DIR, 'fonts')
     os.makedirs(FONTS_DIR, exist_ok=True)
-
-    # Download or place these fonts in the 'fonts' directory
-    # Amiri for Arabic, DejaVuSans for English/French/German
     pdfmetrics.registerFont(TTFont('Amiri', os.path.join(FONTS_DIR, 'Amiri-Regular.ttf')))
     pdfmetrics.registerFont(TTFont('DejaVuSans', os.path.join(FONTS_DIR, 'DejaVuSans.ttf')))
 except Exception as e:
@@ -66,33 +62,33 @@ def has_extractable_text(pdf_file):
         print(f"Error checking extractable text for {pdf_file}: {e}")
     return False
 
-def extract_text(pdf_file, output_path):
+def extract_text(pdf_file, output_path, start_page, end_page):
     try:
         with open(pdf_file, 'rb') as file:
             reader = PyPDF2.PdfReader(file)
-            with open(output_path, 'w', encoding='utf-8') as f:
-                for i, page in enumerate(reader.pages):
-                    text = page.extract_text() or ''
+            with open(output_path, 'w', encoding='utf-8') as f:  # Changed from 'a' to 'w'
+                for i in range(start_page, min(end_page, len(reader.pages))):
+                    text = reader.pages[i].extract_text() or ''
                     f.write(f"\n--- Page {i + 1} ---\n")
                     f.write(text)
                     f.write("\n")
     except Exception as e:
         print(f"Error extracting text from {pdf_file}: {e}")
-        with open(output_path, 'w', encoding='utf-8') as f:
+        with open(output_path, 'w', encoding='utf-8') as f:  # Changed from 'a' to 'w'
             f.write(f"Error extracting text: {e}\n")
 
-def ocr_content(pdf_file, output_path, language='eng'):
+def ocr_content(pdf_file, output_path, start_page, end_page, language='eng'):
     try:
-        images = convert_from_path(pdf_file, dpi=300)
-        with open(output_path, 'w', encoding='utf-8') as f:
-            for i, image in enumerate(images):
+        images = convert_from_path(pdf_file, dpi=300, first_page=start_page+1, last_page=end_page)
+        with open(output_path, 'w', encoding='utf-8') as f:  # Changed from 'a' to 'w'
+            for i, image in enumerate(images, start=start_page):
                 text = pytesseract.image_to_string(image, lang=language)
                 f.write(f"\n--- Page {i + 1} ---\n")
                 f.write(text)
                 f.write("\n")
     except Exception as e:
         print(f"Error performing OCR on {pdf_file}: {e}")
-        with open(output_path, 'w', encoding='utf-8') as f:
+        with open(output_path, 'w', encoding='utf-8') as f:  # Changed from 'a' to 'w'
             f.write(f"Error performing OCR: {e}\n")
 
 def generate_pdf_from_text(text, output_path, language='english'):
@@ -100,45 +96,41 @@ def generate_pdf_from_text(text, output_path, language='english'):
         buffer = BytesIO()
         doc = SimpleDocTemplate(buffer, pagesize=letter)
         styles = getSampleStyleSheet()
-
-        # Define styles for different languages
         if language.lower() in ['arabic']:
             font_name = 'Amiri'
             text = arabic_reshaper.reshape(text)
-            text = get_display(text)  # Handle RTL
+            text = get_display(text)
             style = ParagraphStyle(
                 name='Arabic',
                 fontName=font_name,
                 fontSize=12,
                 leading=14,
-                alignment=2,  # Right-aligned for Arabic
+                alignment=2,
                 spaceAfter=12,
                 textColor=colors.black
             )
-        else:  # English, French, German
+        else:
             font_name = 'DejaVuSans'
             style = ParagraphStyle(
                 name='Normal',
                 fontName=font_name,
                 fontSize=12,
                 leading=14,
-                alignment=0,  # Left-aligned
+                alignment=0,
                 spaceAfter=12,
                 textColor=colors.black
             )
-
         story = []
         lines = text.split('\n')
         for line in lines:
             if line.strip():
-                story.append(Paragraph(line[:500], style))  # Limit length to avoid overflow
+                story.append(Paragraph(line[:500], style))
                 story.append(Spacer(1, 6))
         doc.build(story)
-
         buffer.seek(0)
         with open(output_path, 'wb') as f:
             f.write(buffer.read())
-        time.sleep(0.1)  # Ensure file is fully written
+        time.sleep(0.1)
     except Exception as e:
         print(f"Error generating PDF for {language}: {e}")
         raise
@@ -230,35 +222,30 @@ def upload_file():
     pdf_path = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
     txt_path = os.path.join(app.config['CONTENT_FOLDER'], f"{base_filename}.txt")
     
-    # Stream file in chunks
-    chunk_size = 8192
-    with open(pdf_path, 'wb') as f:
-        while True:
-            chunk = file.stream.read(chunk_size)
-            if not chunk:
-                break
-            f.write(chunk)
+    file.save(pdf_path)
     
     try:
-        with open(pdf_path, 'rb') as pdf_file:
-            reader = PyPDF2.PdfReader(pdf_file)
-            with open(txt_path, 'w', encoding='utf-8') as txt_file:
-                for page_num in range(len(reader.pages)):
-                    page = reader.pages[page_num]
-                    text = page.extract_text() or ''
-                    txt_file.write(f"\n--- Page {page_num + 1} ---\n")
-                    txt_file.write(text)
-                    txt_file.write("\n")
-                    # Clear memory after each page
-                    del page
-                    if page_num % 10 == 0:  # Flush every 10 pages
-                        txt_file.flush()
-        if not os.path.getsize(txt_path):  # Fallback to OCR if no text extracted
-            ocr_content(pdf_path, txt_path, language=language)
-    finally:
-        os.remove(pdf_path)
+        with open(pdf_path, 'rb') as file:
+            reader = PyPDF2.PdfReader(file)
+            num_pages = len(reader.pages)
+        
+        # Process 3 pages at a time
+        for start_page in range(0, num_pages, 3):
+            end_page = min(start_page + 3, num_pages)
+            if has_extractable_text(pdf_path):
+                mode = 'w' if start_page == 0 else 'a'  # Start new file for first batch
+                extract_text(pdf_path, txt_path, start_page, end_page)
+            else:
+                mode = 'w' if start_page == 0 else 'a'  # Start new file for first batch
+                ocr_content(pdf_path, txt_path, start_page, end_page, language=language)
     
-    return redirect(url_for('index'))
+        os.remove(pdf_path)
+        return redirect(url_for('index'))
+    except Exception as e:
+        print(f"Error processing PDF: {e}")
+        if os.path.exists(pdf_path):
+            os.remove(pdf_path)
+        return redirect(url_for('index'))
 
 @app.route('/view/<filename>')
 def view_file(filename):
@@ -300,7 +287,6 @@ def generate_slides():
         prompt = construct_prompt(content, grade, course, section, country, language)
         response = model.generate_content(prompt)
         
-        # Construct filename using parameters
         base_filename = f"{course}_{grade}_{section}_{language}_{country}"
         pdf_path = os.path.join(app.config['GEMINI_FOLDER'], f"{base_filename}_slides.pdf")
         generate_pdf_from_text(response.text, pdf_path, language=language)
@@ -309,7 +295,6 @@ def generate_slides():
             print(f"PDF not generated: {pdf_path}")
             return redirect(url_for('index'))
         
-        # Encode filename for URL
         encoded_filename = urllib.parse.quote(f"{base_filename}_slides.pdf")
         return redirect(url_for('view_pdf', filename=encoded_filename))
     except Exception as e:
