@@ -17,6 +17,7 @@ from bidi.algorithm import get_display
 from io import BytesIO
 import time
 import urllib.parse
+import re
 
 app = Flask(__name__)
 
@@ -92,7 +93,7 @@ def ocr_content(pdf_path, output_path, start_page, end_page, language='eng'):
         print(f"Error performing OCR: {e}")
         with open(output_path, 'a', encoding='utf-8') as f:
             f.write(f"Error performing OCR: {e}\n")
-            
+
 def generate_pdf_from_text(text, output_path, language='english'):
     try:
         buffer = BytesIO()
@@ -195,6 +196,16 @@ Restart numbering for each new lesson or sub-lesson.
 Keep format and tone consistent across all generated sets.
 """
 
+def get_page_count(txt_path):
+    try:
+        with open(txt_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        page_numbers = re.findall(r'--- Page (\d+) ---', content)
+        return len(page_numbers) if page_numbers else 0
+    except Exception as e:
+        print(f"Error reading page count: {e}")
+        return 0
+
 @app.route('/')
 def index():
     txt_files = [f for f in os.listdir(app.config['CONTENT_FOLDER']) if f.endswith('.txt')]
@@ -222,7 +233,8 @@ def upload_file():
         print("Missing required form fields in upload")
         return redirect(url_for('index'))
 
-    base_filename = f"{course}_{grade}_{section}_{language}_{country}"
+    original_filename = os.path.splitext(file.filename)[0]
+    base_filename = f"{course}_{grade}_{section}_{language}_{country}_{original_filename}"
     pdf_path = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
     txt_path = os.path.join(app.config['CONTENT_FOLDER'], f"{base_filename}.txt")
     
@@ -233,10 +245,8 @@ def upload_file():
             reader = PyPDF2.PdfReader(file)
             num_pages = len(reader.pages)
         
-        # Check extractability once before processing
         is_extractable = has_extractable_text(pdf_path)
         
-        # Process 3 pages at a time
         for start_page in range(0, num_pages, 3):
             end_page = min(start_page + 3, num_pages)
             if is_extractable:
@@ -244,7 +254,6 @@ def upload_file():
             else:
                 ocr_content(pdf_path, txt_path, start_page, end_page, language=language)
         
-        # Verify all pages are processed
         with open(txt_path, 'r', encoding='utf-8') as f:
             content = f.read()
             for page_num in range(1, num_pages + 1):
@@ -279,30 +288,65 @@ def view_file(filename):
 
 @app.route('/generate_slides', methods=['POST'])
 def generate_slides():
+    filename = request.form.get('filename', '').strip()
     grade = request.form.get('grade', '').strip()
     course = request.form.get('course', '').strip()
     section = request.form.get('section', '').strip()
     country = request.form.get('country', '').strip()
     language = request.form.get('language', '').strip()
+    original_filename = os.path.splitext(filename)[0]
     
-    if not all([grade, course, section, country, language]):
+    if not all([filename, grade, course, section, country, language]):
         print("Missing required form fields in generate_slides")
         return redirect(url_for('index'))
     
+    txt_path = os.path.join(app.config['CONTENT_FOLDER'], filename)
+    if not os.path.exists(txt_path):
+        print(f"Text file not found: {txt_path}")
+        return redirect(url_for('index'))
+    
     try:
+        # Get total page count
+        total_pages = get_page_count(txt_path)
+        base_filename = f"{course}_{grade}_{section}_{language}_{country}_{original_filename}"
+        output_txt_path = os.path.join(app.config['GEMINI_FOLDER'], f"{base_filename}_gemini_response.txt")
+        
         model = genai.GenerativeModel('gemini-1.5-flash')
         prompt = construct_prompt(grade, course, section, country, language)
-        response = model.generate_content(prompt)
         
-        base_filename = f"{course}_{grade}_{section}_{language}_{country}"
-        pdf_path = os.path.join(app.config['GEMINI_FOLDER'], f"{base_filename}_slides.pdf")
-        generate_pdf_from_text(response.text, pdf_path, language=language)
+        # Read the text file
+        with open(txt_path, 'r', encoding='utf-8') as f:
+            full_content = f.read()
+        
+        # Clear output file
+        open(output_txt_path, 'w').close()
+        
+        if total_pages <= 30:
+            # Send entire file
+            response = model.generate_content(prompt + "\n\nContent:\n" + full_content)
+            with open(output_txt_path, 'a', encoding='utf-8') as f:
+                f.write(response.text)
+        else:
+            # Process in 20-page increments
+            pages = re.split(r'--- Page \d+ ---', full_content)[1:]  # Skip first empty split
+            for start_page in range(0, total_pages, 20):
+                end_page = min(start_page + 20, total_pages)
+                page_content = "".join(pages[start_page:end_page])
+                response = model.generate_content(prompt + "\n\nContent:\n" + page_content)
+                with open(output_txt_path, 'a', encoding='utf-8') as f:
+                    f.write(response.text)
+        
+        # Generate PDF from concatenated responses
+        with open(output_txt_path, 'r', encoding='utf-8') as f:
+            response_text = f.read()
+        pdf_path = os.path.join(app.config['GEMINI_FOLDER'], f"{base_filename}_gemini_response.pdf")
+        generate_pdf_from_text(response_text, pdf_path, language=language)
         
         if not os.path.exists(pdf_path):
             print(f"PDF not generated: {pdf_path}")
             return redirect(url_for('index'))
         
-        encoded_filename = urllib.parse.quote(f"{base_filename}_slides.pdf")
+        encoded_filename = urllib.parse.quote(f"{base_filename}_gemini_response.pdf")
         return redirect(url_for('view_pdf', filename=encoded_filename))
     except Exception as e:
         print(f"Error generating slides: {e}")
