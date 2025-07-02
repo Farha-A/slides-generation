@@ -18,6 +18,12 @@ from io import BytesIO
 import time
 import urllib.parse
 import re
+import concurrent.futures
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
@@ -29,14 +35,14 @@ GEMINI_FOLDER = os.path.join(BASE_DIR, 'gemini_pdfs')
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['CONTENT_FOLDER'] = CONTENT_FOLDER
 app.config['GEMINI_FOLDER'] = GEMINI_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # 100 MB limit
+app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # 200 MB limit
 
 # Ensure folders exist
 for folder in [UPLOAD_FOLDER, CONTENT_FOLDER, GEMINI_FOLDER]:
     try:
         os.makedirs(folder, exist_ok=True)
     except Exception as e:
-        print(f"Error creating directory {folder}: {e}")
+        logger.error(f"Error creating directory {folder}: {e}")
 
 load_dotenv()
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
@@ -48,7 +54,7 @@ try:
     pdfmetrics.registerFont(TTFont('Amiri', os.path.join(FONTS_DIR, 'Amiri-Regular.ttf')))
     pdfmetrics.registerFont(TTFont('DejaVuSans', os.path.join(FONTS_DIR, 'DejaVuSans.ttf')))
 except Exception as e:
-    print(f"Error registering fonts: {e}")
+    logger.error(f"Error registering fonts: {e}")
 
 def has_extractable_text(pdf_file):
     try:
@@ -59,7 +65,7 @@ def has_extractable_text(pdf_file):
                 if len(text.strip()) > 10:
                     return True
     except Exception as e:
-        print(f"Error checking extractable text for {pdf_file}: {e}")
+        logger.error(f"Error checking extractable text for {pdf_file}: {e}")
     return False
 
 def extract_text(pdf_file, output_path, start_page, end_page):
@@ -73,170 +79,124 @@ def extract_text(pdf_file, output_path, start_page, end_page):
                     f.write(f"\n--- Page {i + 1} ---\n")
                     f.write(text)
                     f.write("\n")
+                    f.flush()  # Ensure immediate write
     except Exception as e:
-        print(f"Error extracting text from {pdf_file}: {e}")
+        logger.error(f"Error extracting text from {pdf_file}: {e}")
         with open(output_path, 'a', encoding='utf-8') as f:
             f.write(f"Error extracting text: {e}\n")
 
 def ocr_content(pdf_path, output_path, start_page, end_page, language='eng'):
     try:
-        print(f"Starting OCR for pages {start_page+1} to {end_page} (language: {language})")
-        
-        # Convert with lower DPI for faster processing and less memory usage
+        logger.info(f"Starting OCR for pages {start_page+1} to {end_page} (language: {language})")
         images = convert_from_path(
-            pdf_path, 
-            dpi=100,  # Reduced from 150 to 100 for faster processing
-            first_page=start_page+1, 
+            pdf_path,
+            dpi=100,
+            first_page=start_page+1,
             last_page=end_page,
-            fmt='jpeg',  # Use JPEG for smaller memory footprint
+            fmt='jpeg',
             jpegopt={'quality': 85, 'progressive': True, 'optimize': True}
         )
         
         mode = 'w' if start_page == 0 else 'a'
         with open(output_path, mode, encoding='utf-8') as f:
             for i, image in enumerate(images, start=start_page):
-                print(f"Processing page {i + 1} with OCR...")
-                
-                # Optimize image before OCR
-                # Resize if too large (helps with processing speed)
+                logger.info(f"Processing page {i + 1} with OCR...")
                 max_dimension = 2000
                 if max(image.size) > max_dimension:
                     ratio = max_dimension / max(image.size)
                     new_size = tuple(int(dim * ratio) for dim in image.size)
                     image = image.resize(new_size, Image.Resampling.LANCZOS)
                 
-                # Convert to grayscale for better OCR performance
                 image = image.convert('L')
-                
-                # OCR with timeout protection
                 try:
-                    # Use simpler OCR config for speed
                     custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz .,!?;:-()[]{}"\''
-                    if language == 'ara':  # Arabic language
-                        custom_config = r'--oem 3 --psm 6'  # Remove whitelist for Arabic
-                    
+                    if language == 'ara':
+                        custom_config = r'--oem 3 --psm 6'
                     text = pytesseract.image_to_string(
-                        image, 
+                        image,
                         lang=language,
                         config=custom_config,
-                        timeout=120  # 45 second timeout per page
+                        timeout=120
                     )
-                    
                     f.write(f"\n--- Page {i + 1} ---\n")
                     f.write(text)
                     f.write("\n")
-                    f.flush()  # Ensure data is written immediately
-                    
+                    f.flush()
                 except Exception as page_error:
-                    print(f"OCR error on page {i + 1}: {page_error}")
+                    logger.error(f"OCR error on page {i + 1}: {page_error}")
                     f.write(f"\n--- Page {i + 1} (OCR Error) ---\n")
                     f.write(f"Error processing page: {str(page_error)}\n")
                     f.write("\n")
                 
-                # Small delay to prevent overwhelming the system
                 time.sleep(0.2)
-                
-                # Clear image from memory
                 del image
                 
-        print(f"OCR completed for pages {start_page+1} to {end_page}")
-        
+        logger.info(f"OCR completed for pages {start_page+1} to {end_page}")
     except Exception as e:
-        print(f"Error performing OCR: {e}")
+        logger.error(f"Error performing OCR: {e}")
         with open(output_path, 'a', encoding='utf-8') as f:
             f.write(f"Error performing OCR on pages {start_page+1}-{end_page}: {e}\n")
-
-from reportlab.pdfbase.pdfmetrics import stringWidth
-
-from reportlab.pdfbase.pdfmetrics import stringWidth
-from reportlab.lib.enums import TA_RIGHT, TA_LEFT, TA_CENTER
 
 def generate_pdf_from_text(text, output_path, language='english'):
     try:
         buffer = BytesIO()
         doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
         styles = getSampleStyleSheet()
-        
         story = []
         lines = text.split('\n')
+        
+        arabic_style = ParagraphStyle(
+            name='Arabic',
+            fontName='Amiri',
+            fontSize=12,
+            leading=16,
+            alignment=2,  # TA_RIGHT
+            spaceAfter=12,
+            textColor=colors.black,
+            allowWidows=1,
+            allowOrphans=1,
+            splitLongWords=False,
+            wordWrap='RTL'
+        )
+        
+        english_style = ParagraphStyle(
+            name='English',
+            fontName='DejaVuSans',
+            fontSize=12,
+            leading=16,
+            alignment=1,  # TA_LEFT
+            spaceAfter=12,
+            textColor=colors.black
+        )
         
         for line in lines:
             if not line.strip():
                 story.append(Spacer(1, 6))
                 continue
             
-            # Detect if line contains Arabic characters
             has_arabic = any(0x0600 <= ord(c) <= 0x06FF for c in line)
             has_english = any(c.isascii() and c.isalpha() for c in line)
             
             if has_arabic:
-                # Configure for Arabic text
-                font_name = 'Amiri'
                 try:
-                    # Reshape Arabic text properly
                     reshaped_text = arabic_reshaper.reshape(line)
                     bidi_text = get_display(reshaped_text)
                 except Exception as e:
-                    print(f"Error reshaping Arabic text: {e}")
+                    logger.error(f"Error reshaping Arabic text: {e}")
                     bidi_text = line
                 
-                # Create Arabic style with proper RTL alignment
-                arabic_style = ParagraphStyle(
-                    name='Arabic',
-                    fontName=font_name,
-                    fontSize=12,
-                    leading=16,
-                    alignment=TA_RIGHT,  # Right alignment for Arabic
-                    spaceAfter=12,
-                    textColor=colors.black,
-                    allowWidows=1,
-                    allowOrphans=1,
-                    splitLongWords=False,
-                    wordWrap='RTL'
-                )
-                
-                # Handle mixed content (Arabic + English)
-                if has_english and has_arabic:
-                    # For mixed content, create separate paragraphs for better control
-                    # Split by common separators that might indicate language switch
-                    import re
-                    # Split on common punctuation that separates languages
+                if has_english:
                     parts = re.split(r'([.!?:;،؛])', bidi_text)
-                    
                     for part in parts:
                         if part.strip():
                             part_has_arabic = any(0x0600 <= ord(c) <= 0x06FF for c in part)
-                            if part_has_arabic:
-                                p = Paragraph(part.strip(), arabic_style)
-                            else:
-                                # Use English style for non-Arabic parts
-                                english_style = ParagraphStyle(
-                                    name='English',
-                                    fontName='DejaVuSans',
-                                    fontSize=12,
-                                    leading=16,
-                                    alignment=TA_LEFT,
-                                    spaceAfter=12,
-                                    textColor=colors.black
-                                )
-                                p = Paragraph(part.strip(), english_style)
+                            style = arabic_style if part_has_arabic else english_style
+                            p = Paragraph(part.strip(), style)
                             story.append(p)
                 else:
-                    # Pure Arabic text
                     p = Paragraph(bidi_text, arabic_style)
                     story.append(p)
             else:
-                # Configure for non-Arabic text (English, etc.)
-                font_name = 'DejaVuSans'
-                english_style = ParagraphStyle(
-                    name='English',
-                    fontName=font_name,
-                    fontSize=12,
-                    leading=16,
-                    alignment=TA_LEFT,  # Left alignment for English
-                    spaceAfter=12,
-                    textColor=colors.black
-                )
                 p = Paragraph(line, english_style)
                 story.append(p)
             
@@ -248,147 +208,8 @@ def generate_pdf_from_text(text, output_path, language='english'):
             f.write(buffer.read())
         time.sleep(0.1)
     except Exception as e:
-        print(f"Error generating PDF for {language}: {e}")
+        logger.error(f"Error generating PDF for {language}: {e}")
         raise
-
-# Alternative approach for better mixed language handling
-def generate_pdf_from_text_advanced(text, output_path, language='english'):
-    """
-    Advanced version with better mixed language support
-    """
-    try:
-        buffer = BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
-        
-        story = []
-        lines = text.split('\n')
-        
-        # Define styles
-        arabic_style = ParagraphStyle(
-            name='Arabic',
-            fontName='Amiri',
-            fontSize=12,
-            leading=16,
-            alignment=TA_RIGHT,
-            spaceAfter=12,
-            textColor=colors.black,
-            allowWidows=1,
-            allowOrphans=1,
-            splitLongWords=False
-        )
-        
-        english_style = ParagraphStyle(
-            name='English',
-            fontName='DejaVuSans',
-            fontSize=12,
-            leading=16,
-            alignment=TA_LEFT,
-            spaceAfter=12,
-            textColor=colors.black
-        )
-        
-        for line in lines:
-            if not line.strip():
-                story.append(Spacer(1, 12))
-                continue
-            
-            # Process line for mixed content
-            processed_line = process_mixed_language_line(line)
-            
-            if processed_line['type'] == 'arabic':
-                p = Paragraph(processed_line['text'], arabic_style)
-                story.append(p)
-            elif processed_line['type'] == 'english':
-                p = Paragraph(processed_line['text'], english_style)
-                story.append(p)
-            elif processed_line['type'] == 'mixed':
-                # Handle mixed content by creating separate paragraphs
-                for segment in processed_line['segments']:
-                    if segment['type'] == 'arabic':
-                        p = Paragraph(segment['text'], arabic_style)
-                    else:
-                        p = Paragraph(segment['text'], english_style)
-                    story.append(p)
-                    story.append(Spacer(1, 3))
-            
-            story.append(Spacer(1, 6))
-        
-        doc.build(story)
-        buffer.seek(0)
-        with open(output_path, 'wb') as f:
-            f.write(buffer.read())
-            
-    except Exception as e:
-        print(f"Error generating advanced PDF: {e}")
-        raise
-
-def process_mixed_language_line(line):
-    """
-    Process a line that may contain mixed Arabic and English content
-    """
-    import re
-    
-    has_arabic = any(0x0600 <= ord(c) <= 0x06FF for c in line)
-    has_english = any(c.isascii() and c.isalpha() for c in line)
-    
-    if has_arabic and not has_english:
-        # Pure Arabic
-        try:
-            reshaped_text = arabic_reshaper.reshape(line)
-            bidi_text = get_display(reshaped_text)
-            return {'type': 'arabic', 'text': bidi_text}
-        except:
-            return {'type': 'arabic', 'text': line}
-    elif has_english and not has_arabic:
-        # Pure English
-        return {'type': 'english', 'text': line}
-    elif has_arabic and has_english:
-        # Mixed content - split and process separately
-        segments = []
-        # Simple approach: split by spaces and process each word/phrase
-        words = line.split()
-        current_segment = []
-        current_type = None
-        
-        for word in words:
-            word_has_arabic = any(0x0600 <= ord(c) <= 0x06FF for c in word)
-            word_type = 'arabic' if word_has_arabic else 'english'
-            
-            if current_type is None:
-                current_type = word_type
-                current_segment.append(word)
-            elif current_type == word_type:
-                current_segment.append(word)
-            else:
-                # Type changed, save current segment and start new one
-                if current_segment:
-                    text = ' '.join(current_segment)
-                    if current_type == 'arabic':
-                        try:
-                            reshaped_text = arabic_reshaper.reshape(text)
-                            text = get_display(reshaped_text)
-                        except:
-                            pass
-                    segments.append({'type': current_type, 'text': text})
-                
-                current_segment = [word]
-                current_type = word_type
-        
-        # Add final segment
-        if current_segment:
-            text = ' '.join(current_segment)
-            if current_type == 'arabic':
-                try:
-                    reshaped_text = arabic_reshaper.reshape(text)
-                    text = get_display(reshaped_text)
-                except:
-                    pass
-            segments.append({'type': current_type, 'text': text})
-        
-        return {'type': 'mixed', 'segments': segments}
-    else:
-        # Fallback
-        return {'type': 'english', 'text': line}
 
 def construct_prompt(grade, course, section, country, language):
     return f"""
@@ -455,8 +276,20 @@ def get_page_count(txt_path):
         page_numbers = re.findall(r'--- Page (\d+) ---', content)
         return len(page_numbers) if page_numbers else 0
     except Exception as e:
-        print(f"Error reading page count: {e}")
+        logger.error(f"Error reading page count: {e}")
         return 0
+
+def process_chunk(pdf_path, txt_path, start_page, end_page, is_extractable, language):
+    try:
+        if is_extractable:
+            extract_text(pdf_path, txt_path, start_page, end_page)
+        else:
+            ocr_content(pdf_path, txt_path, start_page, end_page, language=language)
+    except Exception as chunk_error:
+        logger.error(f"Error processing chunk {start_page}-{end_page}: {chunk_error}")
+        with open(txt_path, 'a', encoding='utf-8') as f:
+            f.write(f"\n--- Pages {start_page + 1}-{end_page} (Processing Error) ---\n")
+            f.write(f"Error: {str(chunk_error)}\n")
 
 @app.route('/')
 def index():
@@ -467,7 +300,7 @@ def index():
 @app.route('/upload', methods=['POST'])
 def upload_file():
     if 'file' not in request.files:
-        print("No file uploaded")
+        logger.error("No file uploaded")
         return redirect(url_for('index'))
     
     file = request.files['file']
@@ -478,11 +311,11 @@ def upload_file():
     country = request.form.get('country', '').strip()
 
     if file.filename == '' or not file.filename.endswith('.pdf'):
-        print("Invalid file or no file selected")
+        logger.error("Invalid file or no file selected")
         return redirect(url_for('index'))
 
     if not all([grade, course, section, language, country]):
-        print("Missing required form fields in upload")
+        logger.error("Missing required form fields in upload")
         return redirect(url_for('index'))
 
     original_filename = os.path.splitext(file.filename)[0]
@@ -491,76 +324,50 @@ def upload_file():
     txt_path = os.path.join(app.config['CONTENT_FOLDER'], f"{base_filename}.txt")
     
     try:
-        print(f"Saving uploaded file: {file.filename}")
+        logger.info(f"Saving uploaded file: {file.filename}")
         file.save(pdf_path)
         
-        print("Analyzing PDF structure...")
         with open(pdf_path, 'rb') as pdf_file:
             reader = PyPDF2.PdfReader(pdf_file)
             num_pages = len(reader.pages)
         
-        print(f"PDF has {num_pages} pages")
-        
-        # Check if PDF has extractable text
+        logger.info(f"PDF has {num_pages} pages")
         is_extractable = has_extractable_text(pdf_path)
-        print(f"PDF has extractable text: {is_extractable}")
+        logger.info(f"PDF has extractable text: {is_extractable}")
         
-        # Process in smaller chunks to avoid timeout
-        chunk_size = 2 if not is_extractable else 5  # Smaller chunks for OCR
+        chunk_size = 2 if not is_extractable else 5
+        chunks = [(pdf_path, txt_path, start, min(start + chunk_size, num_pages), is_extractable, language)
+                  for start in range(0, num_pages, chunk_size)]
         
-        for start_page in range(0, num_pages, chunk_size):
-            end_page = min(start_page + chunk_size, num_pages)
-            print(f"Processing pages {start_page + 1} to {end_page} of {num_pages}")
-            
-            try:
-                if is_extractable:
-                    extract_text(pdf_path, txt_path, start_page, end_page)
-                else:
-                    ocr_content(pdf_path, txt_path, start_page, end_page, language=language)
-            except Exception as chunk_error:
-                print(f"Error processing chunk {start_page}-{end_page}: {chunk_error}")
-                # Continue with next chunk instead of failing completely
-                with open(txt_path, 'a', encoding='utf-8') as f:
-                    f.write(f"\n--- Pages {start_page + 1}-{end_page} (Processing Error) ---\n")
-                    f.write(f"Error: {str(chunk_error)}\n")
-                continue
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+            futures = [executor.submit(process_chunk, *chunk) for chunk in chunks]
+            concurrent.futures.wait(futures, timeout=300)  # 5-minute timeout per chunk
         
-        # Verify all pages were processed
-        print("Verifying page processing...")
+        # Verify all pages
         with open(txt_path, 'r', encoding='utf-8') as f:
             content = f.read()
-            
+        
         missing_pages = []
         for page_num in range(1, num_pages + 1):
             if f"--- Page {page_num} ---" not in content:
                 missing_pages.append(page_num)
         
         if missing_pages:
-            print(f"Reprocessing missing pages: {missing_pages}")
+            logger.warning(f"Reprocessing missing pages: {missing_pages}")
             for page_num in missing_pages:
-                try:
-                    if is_extractable:
-                        extract_text(pdf_path, txt_path, page_num - 1, page_num)
-                    else:
-                        ocr_content(pdf_path, txt_path, page_num - 1, page_num, language=language)
-                except Exception as retry_error:
-                    print(f"Failed to reprocess page {page_num}: {retry_error}")
+                process_chunk(pdf_path, txt_path, page_num - 1, page_num, is_extractable, language)
         
-        # Clean up uploaded PDF
-        print("Cleaning up uploaded PDF file...")
         os.remove(pdf_path)
-        
-        print(f"Processing completed successfully. Text saved to: {txt_path}")
+        logger.info(f"Cleaned up uploaded PDF: {pdf_path}")
         return redirect(url_for('index'))
         
     except Exception as e:
-        print(f"Error processing PDF: {e}")
-        # Clean up files on error
+        logger.error(f"Error processing PDF: {e}")
         for cleanup_path in [pdf_path, txt_path]:
             if os.path.exists(cleanup_path):
                 try:
                     os.remove(cleanup_path)
-                    print(f"Cleaned up: {cleanup_path}")
+                    logger.info(f"Cleaned up: {cleanup_path}")
                 except:
                     pass
         return redirect(url_for('index'))
@@ -573,10 +380,10 @@ def view_file(filename):
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
             return render_template('view.html', content=content, filename=filename)
-        print(f"Text file not found: {file_path}")
+        logger.error(f"Text file not found: {file_path}")
         return redirect(url_for('index'))
     except Exception as e:
-        print(f"Error serving text file: {e}")
+        logger.error(f"Error serving text file: {e}")
         return redirect(url_for('index'))
 
 @app.route('/generate_slides', methods=['POST'])
@@ -590,55 +397,49 @@ def generate_slides():
     original_filename = os.path.splitext(filename)[0]
     
     if not all([filename, grade, course, section, country, language]):
-        print("Missing required form fields in generate_slides")
+        logger.error("Missing required form fields in generate_slides")
         return redirect(url_for('index'))
     
     txt_path = os.path.join(app.config['CONTENT_FOLDER'], filename)
     if not os.path.exists(txt_path):
-        print(f"Text file not found: {txt_path}")
+        logger.error(f"Text file not found: {txt_path}")
         return redirect(url_for('index'))
     
-    # Define paths for intermediate and final files
     base_filename = f"{course}_{grade}_{section}_{language}_{country}_{original_filename}"
     output_txt_path = os.path.join(app.config['GEMINI_FOLDER'], f"{base_filename}_gemini_response.txt")
     pdf_path = os.path.join(app.config['GEMINI_FOLDER'], f"{base_filename}_gemini_response.pdf")
     
     try:
         total_pages = get_page_count(txt_path)
-        
         model = genai.GenerativeModel('gemini-1.5-flash')
         prompt = construct_prompt(grade, course, section, country, language)
         
         with open(txt_path, 'r', encoding='utf-8') as f:
             full_content = f.read()
         
-        # Ensure output file is created with UTF-8 encoding
         with open(output_txt_path, 'w', encoding='utf-8') as f:
-            f.write("")  # Initialize empty file
+            f.write("")
         
-        print(f"Processing {total_pages} pages for Gemini...")
+        logger.info(f"Processing {total_pages} pages for Gemini...")
         
         if total_pages <= 30:
-            print("Processing all pages in single request...")
             response = model.generate_content(prompt + "\n\nContent:\n" + full_content)
             if response and response.text:
                 with open(output_txt_path, 'a', encoding='utf-8') as f:
                     f.write(response.text + "\n")
             else:
-                print("No response from Gemini or empty response")
-                # Clean up empty text file before returning
+                logger.error("No response from Gemini or empty response")
                 if os.path.exists(output_txt_path):
                     os.remove(output_txt_path)
-                    print(f"Cleaned up empty text file: {output_txt_path}")
+                    logger.info(f"Cleaned up empty text file: {output_txt_path}")
                 return redirect(url_for('index'))
         else:
-            print(f"Processing {total_pages} pages in batches of 20...")
             pages = re.split(r'--- Page \d+ ---', full_content)[1:]
             batch_count = 0
             for start_page in range(0, total_pages, 20):
                 end_page = min(start_page + 20, total_pages)
                 batch_count += 1
-                print(f"Processing batch {batch_count}: pages {start_page + 1}-{end_page}")
+                logger.info(f"Processing batch {batch_count}: pages {start_page + 1}-{end_page}")
                 
                 page_content = "".join(pages[start_page:end_page])
                 response = model.generate_content(prompt + "\n\nContent:\n" + page_content)
@@ -646,58 +447,50 @@ def generate_slides():
                     with open(output_txt_path, 'a', encoding='utf-8') as f:
                         f.write(response.text + "\n")
                 else:
-                    print(f"No response for pages {start_page + 1}-{end_page}")
+                    logger.warning(f"No response for pages {start_page + 1}-{end_page}")
                     continue
         
-        # Verify output file content
         with open(output_txt_path, 'r', encoding='utf-8') as f:
             response_text = f.read()
         
         if not response_text.strip():
-            print(f"Output file is empty: {output_txt_path}")
-            # Clean up empty text file
+            logger.error(f"Output file is empty: {output_txt_path}")
             if os.path.exists(output_txt_path):
                 os.remove(output_txt_path)
-                print(f"Cleaned up empty text file: {output_txt_path}")
+                logger.info(f"Cleaned up empty text file: {output_txt_path}")
             return redirect(url_for('index'))
         
-        print("Generating PDF from Gemini response...")
-        # Generate PDF
+        logger.info("Generating PDF from Gemini response...")
         generate_pdf_from_text(response_text, pdf_path, language=language)
         
         if not os.path.exists(pdf_path):
-            print(f"PDF not generated: {pdf_path}")
-            # Clean up text file if PDF generation failed
+            logger.error(f"PDF not generated: {pdf_path}")
             if os.path.exists(output_txt_path):
                 os.remove(output_txt_path)
-                print(f"Cleaned up text file after PDF generation failure: {output_txt_path}")
+                logger.info(f"Cleaned up text file after PDF generation failure: {output_txt_path}")
             return redirect(url_for('index'))
         
-        # PDF generated successfully, now clean up the intermediate text file
         try:
             os.remove(output_txt_path)
-            print(f"Successfully cleaned up intermediate text file: {output_txt_path}")
+            logger.info(f"Successfully cleaned up intermediate text file: {output_txt_path}")
         except Exception as cleanup_error:
-            print(f"Warning: Could not delete intermediate text file {output_txt_path}: {cleanup_error}")
-            # Don't fail the entire process if cleanup fails
+            logger.warning(f"Could not delete intermediate text file {output_txt_path}: {cleanup_error}")
         
-        print(f"Process completed successfully. PDF available at: {pdf_path}")
+        logger.info(f"Process completed successfully. PDF available at: {pdf_path}")
         encoded_filename = urllib.parse.quote(f"{base_filename}_gemini_response.pdf")
         return redirect(url_for('view_pdf', filename=encoded_filename))
         
     except Exception as e:
-        print(f"Error generating slides: {e}")
-        # Clean up any intermediate files on error
+        logger.error(f"Error generating slides: {e}")
         try:
             if os.path.exists(output_txt_path):
                 os.remove(output_txt_path)
-                print(f"Cleaned up text file after error: {output_txt_path}")
+                logger.info(f"Cleaned up text file after error: {output_txt_path}")
             if os.path.exists(pdf_path):
                 os.remove(pdf_path)
-                print(f"Cleaned up partial PDF file after error: {pdf_path}")
+                logger.info(f"Cleaned up partial PDF file after error: {pdf_path}")
         except Exception as cleanup_error:
-            print(f"Warning: Error during cleanup: {cleanup_error}")
-        
+            logger.warning(f"Error during cleanup: {cleanup_error}")
         return redirect(url_for('index'))
 
 @app.route('/view_pdf/<filename>')
@@ -707,10 +500,10 @@ def view_pdf(filename):
     try:
         if os.path.exists(file_path):
             return send_file(file_path, mimetype='application/pdf')
-        print(f"PDF not found: {file_path}")
+        logger.error(f"PDF not found: {file_path}")
         return redirect(url_for('index'))
     except Exception as e:
-        print(f"Error serving PDF: {e}")
+        logger.error(f"Error serving PDF: {e}")
         return redirect(url_for('index'))
 
 if __name__ == "__main__":
