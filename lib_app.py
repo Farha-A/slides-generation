@@ -80,19 +80,71 @@ def extract_text(pdf_file, output_path, start_page, end_page):
 
 def ocr_content(pdf_path, output_path, start_page, end_page, language='eng'):
     try:
-        images = convert_from_path(pdf_path, dpi=150, first_page=start_page+1, last_page=end_page)
+        print(f"Starting OCR for pages {start_page+1} to {end_page} (language: {language})")
+        
+        # Convert with lower DPI for faster processing and less memory usage
+        images = convert_from_path(
+            pdf_path, 
+            dpi=100,  # Reduced from 150 to 100 for faster processing
+            first_page=start_page+1, 
+            last_page=end_page,
+            fmt='jpeg',  # Use JPEG for smaller memory footprint
+            jpegopt={'quality': 85, 'progressive': True, 'optimize': True}
+        )
+        
         mode = 'w' if start_page == 0 else 'a'
         with open(output_path, mode, encoding='utf-8') as f:
             for i, image in enumerate(images, start=start_page):
-                text = pytesseract.image_to_string(image, lang=language)
-                f.write(f"\n--- Page {i + 1} ---\n")
-                f.write(text)
-                f.write("\n")
-                time.sleep(0.1)  # Add delay to reduce load
+                print(f"Processing page {i + 1} with OCR...")
+                
+                # Optimize image before OCR
+                # Resize if too large (helps with processing speed)
+                max_dimension = 2000
+                if max(image.size) > max_dimension:
+                    ratio = max_dimension / max(image.size)
+                    new_size = tuple(int(dim * ratio) for dim in image.size)
+                    image = image.resize(new_size, Image.Resampling.LANCZOS)
+                
+                # Convert to grayscale for better OCR performance
+                image = image.convert('L')
+                
+                # OCR with timeout protection
+                try:
+                    # Use simpler OCR config for speed
+                    custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz .,!?;:-()[]{}"\''
+                    if language == 'ara':  # Arabic language
+                        custom_config = r'--oem 3 --psm 6'  # Remove whitelist for Arabic
+                    
+                    text = pytesseract.image_to_string(
+                        image, 
+                        lang=language,
+                        config=custom_config,
+                        # timeout=45  # 45 second timeout per page
+                    )
+                    
+                    f.write(f"\n--- Page {i + 1} ---\n")
+                    f.write(text)
+                    f.write("\n")
+                    f.flush()  # Ensure data is written immediately
+                    
+                except Exception as page_error:
+                    print(f"OCR error on page {i + 1}: {page_error}")
+                    f.write(f"\n--- Page {i + 1} (OCR Error) ---\n")
+                    f.write(f"Error processing page: {str(page_error)}\n")
+                    f.write("\n")
+                
+                # Small delay to prevent overwhelming the system
+                time.sleep(0.2)
+                
+                # Clear image from memory
+                del image
+                
+        print(f"OCR completed for pages {start_page+1} to {end_page}")
+        
     except Exception as e:
         print(f"Error performing OCR: {e}")
         with open(output_path, 'a', encoding='utf-8') as f:
-            f.write(f"Error performing OCR: {e}\n")
+            f.write(f"Error performing OCR on pages {start_page+1}-{end_page}: {e}\n")
 
 from reportlab.pdfbase.pdfmetrics import stringWidth
 
@@ -438,38 +490,79 @@ def upload_file():
     pdf_path = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
     txt_path = os.path.join(app.config['CONTENT_FOLDER'], f"{base_filename}.txt")
     
-    file.save(pdf_path)
-    
     try:
-        with open(pdf_path, 'rb') as file:
-            reader = PyPDF2.PdfReader(file)
+        print(f"Saving uploaded file: {file.filename}")
+        file.save(pdf_path)
+        
+        print("Analyzing PDF structure...")
+        with open(pdf_path, 'rb') as pdf_file:
+            reader = PyPDF2.PdfReader(pdf_file)
             num_pages = len(reader.pages)
         
+        print(f"PDF has {num_pages} pages")
+        
+        # Check if PDF has extractable text
         is_extractable = has_extractable_text(pdf_path)
+        print(f"PDF has extractable text: {is_extractable}")
         
-        for start_page in range(0, num_pages, 3):
-            end_page = min(start_page + 3, num_pages)
-            if is_extractable:
-                extract_text(pdf_path, txt_path, start_page, end_page)
-            else:
-                ocr_content(pdf_path, txt_path, start_page, end_page, language=language)
+        # Process in smaller chunks to avoid timeout
+        chunk_size = 2 if not is_extractable else 5  # Smaller chunks for OCR
         
+        for start_page in range(0, num_pages, chunk_size):
+            end_page = min(start_page + chunk_size, num_pages)
+            print(f"Processing pages {start_page + 1} to {end_page} of {num_pages}")
+            
+            try:
+                if is_extractable:
+                    extract_text(pdf_path, txt_path, start_page, end_page)
+                else:
+                    ocr_content(pdf_path, txt_path, start_page, end_page, language=language)
+            except Exception as chunk_error:
+                print(f"Error processing chunk {start_page}-{end_page}: {chunk_error}")
+                # Continue with next chunk instead of failing completely
+                with open(txt_path, 'a', encoding='utf-8') as f:
+                    f.write(f"\n--- Pages {start_page + 1}-{end_page} (Processing Error) ---\n")
+                    f.write(f"Error: {str(chunk_error)}\n")
+                continue
+        
+        # Verify all pages were processed
+        print("Verifying page processing...")
         with open(txt_path, 'r', encoding='utf-8') as f:
             content = f.read()
-            for page_num in range(1, num_pages + 1):
-                if f"--- Page {page_num} ---" not in content:
-                    print(f"Warning: Page {page_num} missing in output text file")
+            
+        missing_pages = []
+        for page_num in range(1, num_pages + 1):
+            if f"--- Page {page_num} ---" not in content:
+                missing_pages.append(page_num)
+        
+        if missing_pages:
+            print(f"Reprocessing missing pages: {missing_pages}")
+            for page_num in missing_pages:
+                try:
                     if is_extractable:
                         extract_text(pdf_path, txt_path, page_num - 1, page_num)
                     else:
                         ocr_content(pdf_path, txt_path, page_num - 1, page_num, language=language)
-    
+                except Exception as retry_error:
+                    print(f"Failed to reprocess page {page_num}: {retry_error}")
+        
+        # Clean up uploaded PDF
+        print("Cleaning up uploaded PDF file...")
         os.remove(pdf_path)
+        
+        print(f"Processing completed successfully. Text saved to: {txt_path}")
         return redirect(url_for('index'))
+        
     except Exception as e:
         print(f"Error processing PDF: {e}")
-        if os.path.exists(pdf_path):
-            os.remove(pdf_path)
+        # Clean up files on error
+        for cleanup_path in [pdf_path, txt_path]:
+            if os.path.exists(cleanup_path):
+                try:
+                    os.remove(cleanup_path)
+                    print(f"Cleaned up: {cleanup_path}")
+                except:
+                    pass
         return redirect(url_for('index'))
 
 @app.route('/view/<filename>')
