@@ -119,7 +119,7 @@ def ocr_content(pdf_path, output_path, start_page, end_page, language='eng'):
                         image, 
                         lang=language,
                         config=custom_config,
-                        # timeout=45  # 45 second timeout per page
+                        timeout=120  # 45 second timeout per page
                     )
                     
                     f.write(f"\n--- Page {i + 1} ---\n")
