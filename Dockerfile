@@ -24,12 +24,13 @@ RUN apt-get update && apt-get install -y \
 # Set work directory
 WORKDIR /app
 
-# Copy files
-COPY . .
+# Pre-copy and install dependencies first to leverage Docker cache
+COPY requirements.txt ./
+RUN pip install --no-cache-dir --upgrade pip \
+ && pip install --no-cache-dir -r requirements.txt
 
-# Install Python dependencies
-RUN pip install --no-cache-dir --upgrade pip
-RUN pip install --no-cache-dir -r requirements.txt
+# Then copy the rest of the app
+COPY . .
 
 # Expose Flask port
 EXPOSE 5000
