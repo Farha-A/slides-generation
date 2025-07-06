@@ -207,7 +207,7 @@ def ocr_content_streaming(pdf_path, output_path, start_page, end_page, language=
                         image = image.convert('L')
                         
                         try:
-                            custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz .,!?;:-()[]{}"\''
+                            custom_config = '--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.,!?;:-()[]{}'
                             if language == 'ara':
                                 custom_config = r'--oem 3 --psm 6'
                             
