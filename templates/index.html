@@ -3,136 +3,509 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Slides Generator</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <title>PDF Content Extractor</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        h1, h2 {
+            color: #333;
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 10px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        input[type="text"], input[type="file"], select {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            box-sizing: border-box;
+            font-size: 16px;
+        }
+        input[type="file"] {
+            padding: 5px;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 12px 25px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .file-list {
+            margin-top: 20px;
+        }
+        .file-item {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 10px;
+            border-left: 4px solid #007bff;
+        }
+        .file-item h3 {
+            margin: 0 0 10px 0;
+            color: #333;
+        }
+        .file-actions {
+            margin-top: 10px;
+        }
+        .progress-container {
+            margin-top: 20px;
+            padding: 20px;
+            background-color: #e9ecef;
+            border-radius: 5px;
+            display: none;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 30px;
+            background-color: #ddd;
+            border-radius: 15px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+        .progress-fill {
+            height: 100%;
+            background-color: #007bff;
+            transition: width 0.3s ease;
+            border-radius: 15px;
+        }
+        .progress-text {
+            text-align: center;
+            font-weight: bold;
+            color: #333;
+        }
+        .progress-message {
+            text-align: center;
+            color: #666;
+            font-style: italic;
+        }
+        .error {
+            color: #dc3545;
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+        }
+        .success {
+            color: #155724;
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #007bff;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            margin-right: 10px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .file-size-info {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+        .cancel-btn {
+            background-color: #dc3545;
+        }
+        .cancel-btn:hover {
+            background-color: #c82333;
+        }
+    </style>
 </head>
 <body>
-    <h1>Slides Generator</h1>
-    <h2 style="text-align: center; font-size: 1.2em;">Please input information</h2>
-    <form id="mainForm" action="{{ url_for('generate_slides') }}" method="post" enctype="multipart/form-data">
-        <div class="form-group">
-            <select name="language" id="language" required>
-                <option value="">Select Language</option>
-                <option value="eng">English</option>
-                <option value="fra">French</option>
-                <option value="deu">German</option>
-                <option value="ara">Arabic</option>
-            </select>
+    <div class="container">
+        <h1>PDF Content Extractor & Slide Generator</h1>
+        <p>Upload a PDF file and extract its content, then generate educational slides.</p>
+        
+        <div id="message-container"></div>
+        
+        <form id="upload-form" enctype="multipart/form-data">
+            <div class="form-group">
+                <label for="file">Select PDF File (Max 500MB):</label>
+                <input type="file" id="file" name="file" accept=".pdf" required>
+                <div class="file-size-info">Selected file size will be shown here</div>
+            </div>
+            
+            <div class="form-group">
+                <label for="grade">Grade:</label>
+                <input type="text" id="grade" name="grade" placeholder="e.g., 5, 10, 12" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="course">Course:</label>
+                <input type="text" id="course" name="course" placeholder="e.g., Mathematics, Science, History" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="section">Section:</label>
+                <input type="text" id="section" name="section" placeholder="e.g., Algebra, Biology, World War II" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="language">Language:</label>
+                <select id="language" name="language" required>
+                    <option value="">Select Language</option>
+                    <option value="english">English</option>
+                    <option value="arabic">Arabic</option>
+                    <option value="french">French</option>
+                    <option value="spanish">Spanish</option>
+                    <option value="german">German</option>
+                    <option value="chinese">Chinese</option>
+                    <option value="other">Other</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="country">Country:</label>
+                <input type="text" id="country" name="country" placeholder="e.g., USA, Egypt, UK, France" required>
+            </div>
+            
+            <button type="submit" id="upload-btn">
+                <span class="spinner" id="upload-spinner" style="display: none;"></span>
+                Upload and Process
+            </button>
+        </form>
+        
+        <div id="progress-container" class="progress-container">
+            <div class="progress-bar">
+                <div class="progress-fill" id="progress-fill"></div>
+            </div>
+            <div class="progress-text" id="progress-text">0%</div>
+            <div class="progress-message" id="progress-message">Starting...</div>
+            <button type="button" id="cancel-btn" class="cancel-btn" style="display: none;">Cancel Processing</button>
         </div>
-        <div class="form-group">
-            <input type="text" name="grade" placeholder="Grade" id="grade" required>
+    </div>
+    
+    {% if txt_files %}
+    <div class="container">
+        <h2>Extracted Text Files</h2>
+        <div class="file-list">
+            {% for file in txt_files %}
+            <div class="file-item">
+                <h3>{{ file }}</h3>
+                <div class="file-actions">
+                    <a href="{{ url_for('view_file', filename=file) }}" target="_blank">
+                        <button>View Content</button>
+                    </a>
+                    <button onclick="showSlideForm('{{ file }}')">Generate Slides</button>
+                </div>
+                
+                <div id="slide-form-{{ file }}" style="display: none; margin-top: 15px; padding: 15px; border: 2px solid #007bff; border-radius: 5px;">
+                    <h4>Generate Slides for {{ file }}</h4>
+                    <form method="POST" action="{{ url_for('generate_slides') }}">
+                        <input type="hidden" name="filename" value="{{ file }}">
+                        <div class="form-group">
+                            <label>Grade:</label>
+                            <input type="text" name="grade" placeholder="e.g., 5, 10, 12" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Course:</label>
+                            <input type="text" name="course" placeholder="e.g., Mathematics, Science" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Section:</label>
+                            <input type="text" name="section" placeholder="e.g., Algebra, Biology" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Country:</label>
+                            <input type="text" name="country" placeholder="e.g., USA, Egypt" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Language:</label>
+                            <select name="language" required>
+                                <option value="">Select Language</option>
+                                <option value="english">English</option>
+                                <option value="arabic">Arabic</option>
+                                <option value="french">French</option>
+                                <option value="spanish">Spanish</option>
+                                <option value="german">German</option>
+                                <option value="chinese">Chinese</option>
+                                <option value="other">Other</option>
+                            </select>
+                        </div>
+                        <button type="submit">Generate Slides</button>
+                        <button type="button" onclick="hideSlideForm('{{ file }}')">Cancel</button>
+                    </form>
+                </div>
+            </div>
+            {% endfor %}
         </div>
-        <div class="form-group">
-            <input type="text" name="course" placeholder="Course" id="course" required>
+    </div>
+    {% endif %}
+    
+    {% if pdf_files %}
+    <div class="container">
+        <h2>Generated Slide PDFs</h2>
+        <div class="file-list">
+            {% for file in pdf_files %}
+            <div class="file-item">
+                <h3>{{ file }}</h3>
+                <div class="file-actions">
+                    <a href="{{ url_for('view_file', filename=file) }}" target="_blank">
+                        <button>View Content</button>
+                    </a>
+                </div>
+            </div>
+            {% endfor %}
         </div>
-        <div class="form-group">
-            <input type="text" name="section" placeholder="Section" id="section" required>
-        </div>
-        <div class="form-group">
-            <input type="text" name="country" placeholder="Country" id="country" required>
-        </div>
-        <h3 style="font-size: 1.1em;">Upload File for Text Extraction</h3>
-        <div class="form-group">
-            <input type="file" name="file" id="file" accept=".pdf">
-            <button type="button" id="uploadButton" onclick="prepareUpload()">Upload PDF</button>
-        </div>
-        <h3 style="font-size: 1.1em;">Select File for Slides Generation:</h3>
-        <div class="form-group">
-            <select name="filename" id="filename">
-                <option value="">Select a text file</option>
-                {% for file in txt_files %}
-                    <option value="{{ file }}">{{ file }}</option>
-                {% endfor %}
-            </select>
-            <button type="submit" id="generateButton" formaction="{{ url_for('generate_slides') }}">Generate Slide Points</button>
-        </div>
-    </form>
-
-    <form id="view_file_form" method="get">
-        <h3 style="font-size: 1.1em;">View Text extracted or Slides Points Generated:</h3>
-        <div class="form-group">
-            <select name="filename" onchange="updateViewFormAction()">
-                <option value="">Select a text file</option>
-                {% for file in txt_files %}
-                    <option value="{{ file }}">{{ file }}</option>
-                {% endfor %}
-            </select>
-            <button type="submit">View Book's Extracted Text</button>
-        </div>
-    </form>
-
-    <form id="view_pdf_form" method="get">
-        <div class="form-group">
-            <select name="filename" onchange="updatePdfFormAction()">
-                <option value="">Select a Gemini response PDF</option>
-                {% for file in pdf_files %}
-                    <option value="{{ file }}">{{ file }}</option>
-                {% endfor %}
-            </select>
-            <button type="submit">View Generated Points</button>
-        </div>
-    </form>
-
+    </div>
+    {% endif %}
+    
     <script>
-        function updateViewFormAction() {
-            const select = document.querySelector('#view_file_form select[name="filename"]');
-            const form = document.getElementById('view_file_form');
-            const filename = select.value;
-            if (filename) {
-                form.action = "{{ url_for('view_file', filename='') }}/" + encodeURIComponent(filename);
+        let currentJobId = null;
+        let progressInterval = null;
+        
+        // File size display
+        document.getElementById('file').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            const sizeInfo = document.querySelector('.file-size-info');
+            
+            if (file) {
+                const sizeInMB = (file.size / (1024 * 1024)).toFixed(2);
+                sizeInfo.textContent = `Selected file: ${file.name} (${sizeInMB} MB)`;
+                
+                if (file.size > 500 * 1024 * 1024) {
+                    sizeInfo.style.color = '#dc3545';
+                    sizeInfo.textContent += ' - File too large! Maximum size is 500MB.';
+                } else {
+                    sizeInfo.style.color = '#28a745';
+                }
             } else {
-                form.action = "#";
+                sizeInfo.textContent = 'Selected file size will be shown here';
+                sizeInfo.style.color = '#666';
             }
-        }
-
-        function updatePdfFormAction() {
-            const select = document.querySelector('#view_pdf_form select[name="filename"]');
-            const form = document.getElementById('view_pdf_form');
-            const filename = select.value;
-            if (filename) {
-                form.action = "{{ url_for('view_pdf', filename='') }}/" + encodeURIComponent(filename);
-            } else {
-                form.action = "#";
-            }
-        }
-
-        function prepareUpload() {
-            if (!validateForm()) {
-                alert("Please fill out all fields (Language, Grade, Course, Section, Country) and select a PDF file.");
+        });
+        
+        // Form submission
+        document.getElementById('upload-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            const file = formData.get('file');
+            
+            if (!file || file.size === 0) {
+                showMessage('Please select a file', 'error');
                 return;
             }
-            const form = document.getElementById('mainForm');
-            form.action = "{{ url_for('upload_file') }}";
-            form.submit();
-        }
-
-        function validateForm(isUpload) {
-            const language = document.getElementById('language').value;
-            const grade = document.getElementById('grade').value.trim();
-            const course = document.getElementById('course').value.trim();
-            const section = document.getElementById('section').value.trim();
-            const country = document.getElementById('country').value.trim();
-            const file = document.getElementById('file').value;
-
-            if (isUpload) {
-                return language && grade && course && section && country && file;
+            
+            if (file.size > 500 * 1024 * 1024) {
+                showMessage('File too large! Maximum size is 500MB.', 'error');
+                return;
             }
-            return language && grade && course && section && country;
+            
+            // Start upload
+            startUpload(formData);
+        });
+        
+        function startUpload(formData) {
+            const uploadBtn = document.getElementById('upload-btn');
+            const uploadSpinner = document.getElementById('upload-spinner');
+            const progressContainer = document.getElementById('progress-container');
+            const cancelBtn = document.getElementById('cancel-btn');
+            
+            // Disable form and show progress
+            uploadBtn.disabled = true;
+            uploadSpinner.style.display = 'inline-block';
+            progressContainer.style.display = 'block';
+            cancelBtn.style.display = 'inline-block';
+            
+            // Clear previous messages
+            document.getElementById('message-container').innerHTML = '';
+            
+            // Upload file
+            fetch('/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    currentJobId = data.job_id;
+                    startProgressTracking();
+                    showMessage(data.message, 'success');
+                } else {
+                    throw new Error(data.error || 'Upload failed');
+                }
+            })
+            .catch(error => {
+                showMessage(error.message, 'error');
+                resetUploadForm();
+            });
         }
-
-        document.getElementById('generateButton').addEventListener('click', function(event) {
-            if (!validateForm(false)) {
-                event.preventDefault();
-                alert("Please fill out all fields (Language, Grade, Course, Section, Country) before generating slide points.");
+        
+        function startProgressTracking() {
+            if (progressInterval) {
+                clearInterval(progressInterval);
+            }
+            
+            progressInterval = setInterval(() => {
+                if (currentJobId) {
+                    checkProgress(currentJobId);
+                }
+            }, 2000); // Check every 2 seconds
+        }
+        
+        function checkProgress(jobId) {
+            fetch(`/progress/${jobId}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    showMessage(data.error, 'error');
+                    resetUploadForm();
+                    return;
+                }
+                
+                updateProgressBar(data.progress, data.stage, data.message);
+                
+                if (data.stage === 'completed') {
+                    showMessage('Processing completed successfully!', 'success');
+                    resetUploadForm();
+                    // Refresh page to show new files
+                    setTimeout(() => location.reload(), 2000);
+                } else if (data.stage === 'error') {
+                    showMessage(`Error: ${data.message}`, 'error');
+                    resetUploadForm();
+                } else if (data.stage === 'cancelled') {
+                    showMessage('Processing cancelled', 'error');
+                    resetUploadForm();
+                }
+            })
+            .catch(error => {
+                console.error('Error checking progress:', error);
+            });
+        }
+        
+        function updateProgressBar(progress, stage, message) {
+            const progressFill = document.getElementById('progress-fill');
+            const progressText = document.getElementById('progress-text');
+            const progressMessage = document.getElementById('progress-message');
+            
+            progressFill.style.width = `${progress}%`;
+            progressText.textContent = `${Math.round(progress)}%`;
+            progressMessage.textContent = `${stage}: ${message}`;
+        }
+        
+        function resetUploadForm() {
+            const uploadBtn = document.getElementById('upload-btn');
+            const uploadSpinner = document.getElementById('upload-spinner');
+            const progressContainer = document.getElementById('progress-container');
+            const cancelBtn = document.getElementById('cancel-btn');
+            
+            uploadBtn.disabled = false;
+            uploadSpinner.style.display = 'none';
+            progressContainer.style.display = 'none';
+            cancelBtn.style.display = 'none';
+            
+            if (progressInterval) {
+                clearInterval(progressInterval);
+                progressInterval = null;
+            }
+            
+            currentJobId = null;
+        }
+        
+        // Cancel button
+        document.getElementById('cancel-btn').addEventListener('click', function() {
+            if (currentJobId) {
+                fetch(`/cancel_job/${currentJobId}`, {
+                    method: 'POST'
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showMessage(data.message, 'success');
+                    } else {
+                        showMessage(data.error, 'error');
+                    }
+                    resetUploadForm();
+                })
+                .catch(error => {
+                    showMessage('Error cancelling job', 'error');
+                    resetUploadForm();
+                });
             }
         });
-
-        document.getElementById('uploadButton').addEventListener('click', function(event) {
-            if (!validateForm(true)) {
-                event.preventDefault();
-                alert("Please fill out all fields (Language, Grade, Course, Section, Country) and select a PDF file.");
+        
+        function showMessage(message, type) {
+            const container = document.getElementById('message-container');
+            const div = document.createElement('div');
+            div.className = type;
+            div.textContent = message;
+            container.innerHTML = '';
+            container.appendChild(div);
+            
+            // Auto-remove success messages after 5 seconds
+            if (type === 'success') {
+                setTimeout(() => {
+                    if (container.contains(div)) {
+                        container.removeChild(div);
+                    }
+                }, 5000);
             }
-        });
+        }
+        
+        function showSlideForm(filename) {
+            document.getElementById('slide-form-' + filename).style.display = 'block';
+        }
+        
+        function hideSlideForm(filename) {
+            document.getElementById('slide-form-' + filename).style.display = 'none';
+        }
+        
+        // Auto-cleanup old files every 30 minutes
+        setInterval(() => {
+            fetch('/cleanup_old_files')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.cleaned_files > 0) {
+                    console.log(`Cleaned up ${data.cleaned_files} old files`);
+                }
+            })
+            .catch(error => {
+                console.error('Error during cleanup:', error);
+            });
+        }, 30 * 60 * 1000); // 30 minutes
     </script>
 </body>
 </html>
